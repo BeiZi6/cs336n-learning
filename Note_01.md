@@ -1,5 +1,7 @@
-## kernal
-- write kernels in CUDA/**Trition**/CUTLASS/ThunderKittens
+# CS336 Lecture 1: 课程概览与基础概念
+
+## Kernel（内核）
+- write kernels in CUDA/**Triton**/CUTLASS/ThunderKittens
 ## Parallelism（并行）
 在**多GPU上分布训练计算**的技术，由于模型的参数很大，单个GPU无法完成训练，所以需要**多个GPU系统工作**。
 - GPU间通信比计算慢得多
@@ -11,11 +13,11 @@
 | **Tensor Parallelism**   | 层内参数（如矩阵列） | 单层太大，单GPU放不下    |
 | **Pipeline Parallelism** | 不同层        | 模型很深，不同GPU负责不同层 |
 | **Sequence Parallelism** | 序列长度维度     | 处理超长序列          |
-## inference（推理）
+## Inference（推理）
 - Goal：生成tokens
 - Two phases：prefill and decode（预填充和解码）
-  prefill：预填充，输入是给定的prompt的所有token，可以并行处理所有token，**计算密集型**
-  decode：解码，逐个生成新token，一次只生成一个，**内存密集型**
+  - prefill：预填充，输入是给定的prompt的所有token，可以并行处理所有token，**计算密集型**
+  - decode：解码，逐个生成新token，一次只生成一个，**内存密集型**
 Prompt: "The capital of France is"
        ↓ [Prefill: 一次性处理所有prompt tokens]
        ↓
@@ -27,8 +29,7 @@ Generate: "." (结束)
   - 模型压缩：剪枝（去掉一些不重要的参数），量化（用更低的位数表示参数），蒸馏（训练小模型来模仿大模型）；
   - 投机解码（Speculative Decoding）：用“草稿”小模型快速生成多个候选token，同时大模型并行验证，保留好的token；
   - 系统优化：KV Cache（缓存注意力计算的key/value）、Batching（批处理，同时处理多个请求）；
-## Scaling Laws
-扩展定律
+## Scaling Laws（扩展定律）
 - Goal：给定固定的FLOPs预算C，应该使用**更大的模型**（更多参数 N），还是**训练更多的数据**（更多token D）
 - Chinchilla 最优定律
   $$D^* = 20 \times N^*$$
@@ -37,12 +38,12 @@ Generate: "." (结束)
   - 1.4B 参数模型 → 应训练 28B tokens
   - 70B 参数模型（Chinchilla）→ 训练 1.4T tokens
 - Meaning：
-1. **超参数调优**：在小模型上做实验，预测大模型的最佳设置
-2. **资源分配**：确定最优的模型大小和数据量组合
-3. **成本优化**：避免浪费计算在过大模型或过多数据上
-4. **注意**：Chinchilla 只考虑训练成本，没考虑**推理成本**（实际部署中推理往往更贵）
+  1. **超参数调优**：在小模型上做实验，预测大模型的最佳设置
+  2. **资源分配**：确定最优的模型大小和数据量组合
+  3. **成本优化**：避免浪费计算在过大模型或过多数据上
+  4. **注意**：Chinchilla 只考虑训练成本，没考虑**推理成本**（实际部署中推理往往更贵）
 - FLOPs预算C：Floating Point Operations（浮点运算次数）- 训练模型需要的计算量
-## data
+## Data（数据）
 - Goal：我们希望模型具备什么能力？不同的能力需求决定了需要什么样的训练数据。
 - Evaluation： 
 
@@ -78,16 +79,16 @@ Generate: "." (结束)
     - 直觉：基础模型已有技能，只需要少量标注示例“激活”
 - Learn From Feedback：从反馈学习
   make it better without expensive annotation.
-  - Preference Date（偏好数据）
+  - Preference Data（偏好数据）
   - Verifiers（验证器）
     - Formal verifiers（形式验证器）：代码能否编译运行？数学题答案是否正确？
     - Learned verifiers（学习验证器）：训练一个 LM 作为裁判（LM-as-a-judge）
 - Algorithms（算法）
-  - PPO（Proximal Policy Optimization，近端策略优化）：传统RL，复杂，需要训练vault function
+  - PPO（Proximal Policy Optimization，近端策略优化）：传统RL，复杂，需要训练 value function
   - DPO（Direct Preference Optimization，直接偏好优化）：直接使用偏好数据，更简单
   - GRPO（Group Relative Preference Optimization，群体相对偏好优化）：DeepSeek-R1 所用，去掉 value function
 - **learning_from_feedback** = 不依赖昂贵的人工标注，通过比较模型生成的答案哪个更好（偏好数据），用 DPO/GRPO 算法进一步优化模型。
-## tokenization
+## Tokenization（分词）
 - Tokenizer: strings <-> tokens (indices)
 - Tokenizer 是语言模型的**入口和出口**，负责：
   - **Encode（编码）**：`str → list[int]`（文本 → token 索引）
