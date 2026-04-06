@@ -2,7 +2,13 @@
 
 Stanford CS336 课程学习笔记与作业实现。
 
-## 课程结构
+## 学习进度
+
+| 课程 | 笔记 | 状态 |
+|------|------|------|
+| Lecture 1: 课程概览与基础概念 | [Note_01.md](Note_01.md) | ✅ |
+
+## 作业进度
 
 | 模块 | 主题 | 状态 |
 |------|------|------|
@@ -16,3 +22,4 @@ Stanford CS336 课程学习笔记与作业实现。
 
 - [课程官网](https://stanford-cs336.github.io/)
 - [Spring 2025 Lectures](https://github.com/stanford-cs336/spring2025-lectures)
+- [Bilibili 中英字幕课程](https://www.bilibili.com/video/BV1Ect2zjEHR/)
