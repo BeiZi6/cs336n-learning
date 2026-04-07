@@ -34,7 +34,7 @@
 
 ```python
 total_flops = 6 * 70e9 * 15e12           # 总计算量
-h100_flop_per_sec = 1979e12 / 2           # H100 峰值（非稀疏）
+h100_flop_per_sec = 1979e12 / 2           # H100 峰值（1979 TFLOP/s 为稀疏，密集矩阵取一半 ≈ 989 TFLOP/s）
 mfu = 0.5                                 # 模型利用率
 flops_per_day = h100_flop_per_sec * mfu * 1024 * 60 * 60 * 24
 days = total_flops / flops_per_day        # ≈ 约数十天
@@ -45,7 +45,7 @@ days = total_flops / flops_per_day        # ≈ 约数十天
 ```python
 h100_bytes = 80e9                          # 每张 80GB
 bytes_per_parameter = 4 + 4 + (4 + 4)     # 参数 + 梯度 + 优化器状态 = 16 bytes
-num_parameters = (h100_bytes * 8) / bytes_per_parameter
+num_parameters = (h100_bytes * 8) / bytes_per_parameter  # ≈ 40亿（4B）参数
 ```
 
 - Caveat 1：可以用 bf16 存参数和梯度（2+2），再保留一份 float32 副本（4），总共不省内存但更快
@@ -74,19 +74,24 @@ nn.init.trunc_normal_(x, mean=0, std=1, a=-2, b=2)  # 截断正态初始化
 
 #### float32（单精度，默认）
 
+- 1 位符号 + 8 位指数 + 23 位小数 = 32 位
+- 指数提供动态范围，小数部分提供精度
 - 4 bytes/element
 - GPT-3 的一个 FFN 矩阵 (12288×4, 12288)：**2.3 GB**
 
 #### float16（半精度）
 
+- 1 位符号 + 5 位指数 + 10 位小数 = 16 位
 - 2 bytes/element，内存减半
 - 问题：动态范围差，小数值会下溢
   ```python
   x = torch.tensor([1e-8], dtype=torch.float16)  # → 0（下溢！）
   ```
+- **讲师建议：不推荐在深度学习中使用 float16，应使用 bf16 替代**
 
 #### bfloat16（Brain Floating Point）
 
+- 1 位符号 + 8 位指数 + 7 位小数 = 16 位
 - 2 bytes/element，与 float16 相同内存
 - 与 float32 相同的动态范围，精度稍差但对深度学习影响不大
   ```python
@@ -141,6 +146,7 @@ y = x.transpose(1, 0) # 转置 → 共享存储（但可能非连续）
 
 - 修改 x 会同时影响 y（共享存储）
 - 非连续张量需要 `.contiguous()` 后才能 `.view()`
+- `reshape` = 如果张量连续则等价于 `view`（不复制），否则隐式调用 `.contiguous()` 再 `view`（会复制）
 - **视图免费，复制消耗内存和计算**
 
 #### Elementwise（逐元素操作）
@@ -213,8 +219,10 @@ FLOP = 一次基本浮点运算（加法或乘法）
 
 - 训练 GPT-3（2020）：3.14e23 FLOPs
 - 训练 GPT-4（2023，推测）：2e25 FLOPs
-- A100 峰值：312 TFLOP/s
-- H100 峰值：1979 TFLOP/s（稀疏），非稀疏约一半
+- A100 峰值：312 TFLOP/s（bf16/fp16，fp32 仅约 19.5 TFLOP/s）
+- H100 峰值：1979 TFLOP/s（稀疏），非稀疏约一半（~989 TFLOP/s），均为 bf16/fp16；fp32 约 67.5 TFLOP/s
+- 8 张 H100 运行一周总算力约 **4.7×10²¹ FLOPs**
+- 政策背景：美国行政令曾规定超过 1e26 FLOPs 的基础模型需向政府报备（已撤销）；欧盟《数字服务法》阈值 1e25 FLOPs 仍有效
 
 #### 矩阵乘法 FLOPs
 
@@ -235,7 +243,7 @@ FLOPs = 2 * B * D * K   # 每个 (i,j,k) 一次乘法 + 一次加法
 $$\text{MFU} = \frac{\text{actual FLOP/s}}{\text{promised FLOP/s}}$$
 
 - MFU ≥ 0.5 算不错
-- bfloat16 比 float32 实际 FLOP/s 更高
+- bf16 实际运行时间远快于 fp32，但由于 bf16 的"承诺 FLOP/s"也更高，计算出的 MFU 反而可能**低于** fp32 的 MFU。说明承诺性能有时过于乐观，要始终对代码做基准测试
 - FLOP/s 取决于硬件（H100 >> A100）和数据类型（bfloat16 >> float32）
 
 ### 3.6 Gradients（梯度）
@@ -349,7 +357,7 @@ x = x.to(device, non_blocking=True)   # 异步传输到 GPU
 | **Momentum** | SGD + 梯度指数平均 |
 | **AdaGrad** | SGD + 按 grad² 累积缩放 |
 | **RMSProp** | AdaGrad + grad² 指数平均 |
-| **Adam** | RMSProp + Momentum |
+| **Adam**（2014） | RMSProp + Momentum |
 
 #### 内存核算（以 AdaGrad 为例）
 
@@ -361,6 +369,8 @@ x = x.to(device, non_blocking=True)   # 异步传输到 GPU
 | 优化器状态 | num_parameters |
 
 总内存（float32）= 4 × (参数 + 激活 + 梯度 + 优化器状态)
+
+激活值必须在前向传播时保存，因为反向传播计算第 i 层梯度时依赖该层的激活值。优化技巧：**激活检查点（Activation Checkpointing）** — 不存储激活值，需要时重新计算，用计算换内存。
 
 #### 单步计算量
 
@@ -384,7 +394,11 @@ for t in range(num_train_steps):
 
 ```python
 # 保存
-checkpoint = {"model": model.state_dict(), "optimizer": optimizer.state_dict()}
+checkpoint = {
+    "model": model.state_dict(),
+    "optimizer": optimizer.state_dict(),
+    "step": current_step,  # 保存当前迭代次数，以便从正确位置恢复
+}
 torch.save(checkpoint, "model_checkpoint.pt")
 
 # 加载
@@ -398,7 +412,10 @@ loaded_checkpoint = torch.load("model_checkpoint.pt")
 - 低精度（fp8/float16/bfloat16）：内存小、计算快，但可能不稳定
 
 解决方案 — 混合使用：
-- Forward pass（激活值）：用 bfloat16 / fp8
-- 其余（参数、梯度）：用 float32
+- 参数和优化器状态：保持 float32
+- Forward pass（激活值）：转换为 bfloat16 / fp8 运行
+- 需要累积的中间结果（如注意力机制）：部分保持 float32
 
 PyTorch 提供 AMP（Automatic Mixed Precision）库，NVIDIA Transformer Engine 支持 FP8。
+
+补充：训练时使用低精度较困难，但训练完成后将模型**量化**为低精度（推理量化）相对容易，可获得显著的推理速度提升。
